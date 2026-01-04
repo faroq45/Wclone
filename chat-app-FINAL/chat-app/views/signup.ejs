@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signup - Mini WhatsApp</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <h2>Create Account</h2>
+    
+    <% if (error) { %>
+      <div class="error-msg"><%= error %></div>
+    <% } %>
+    
+    <form action="/signup" method="POST" id="signupForm">
+      <input 
+        type="text" 
+        name="username" 
+        placeholder="Username (3-20 characters)" 
+        required 
+        autocomplete="username"
+        minlength="3"
+        maxlength="20"
+        pattern="[a-zA-Z0-9_-]+"
+        title="Only letters, numbers, underscore and hyphen allowed"
+      >
+      <input 
+        type="password" 
+        name="password" 
+        placeholder="Password (min 6 characters)" 
+        required 
+        autocomplete="new-password"
+        minlength="6"
+        maxlength="128"
+      >
+      <button type="submit">Signup</button>
+    </form>
+    
+    <a href="/login">Already have an account? Login</a>
+  </div>
+</body>
+</html>

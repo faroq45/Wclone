@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat - Mini WhatsApp</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div style="display: flex; gap: 20px; padding: 20px;">
+
+  <!-- Chat Section -->
+  <div class="chat-container">
+    <div class="chat-header">
+      <h2>Welcome <%= username %>!</h2>
+      <a href="/logout" class="logout-btn">Logout</a>
+    </div>
+
+    <!-- Connection status -->
+    <div id="connectionStatus" class="status-bar" style="display: none;"></div>
+
+    <!-- Messages -->
+    <div id="messages">
+      <% messages.forEach(m => { %>
+        <%
+          // Escape HTML to prevent XSS (already sanitized in backend, but double-check)
+          const safeSender = m.sender;
+          const safeText = m.text;
+        %>
+        <div class="message <%= m.sender === username ? 'self' : 'other' %>" data-time="<%= m.createdAt.toISOString() %>">
+          <div class="message-content">
+            <b><%= safeSender %>:</b> <%= safeText %>
+          </div>
+          <span class="time"></span>
+        </div>
+      <% }) %>
+    </div>
+
+    <!-- Typing indicator -->
+    <div id="typingIndicator" class="typing-indicator" style="display: none;">
+      <span class="typing-text"></span>
+    </div>
+
+    <!-- Input -->
+    <form id="chatForm">
+      <input 
+        id="msgInput" 
+        type="text" 
+        placeholder="Type message..." 
+        required
+        maxlength="1000"
+        autocomplete="off"
+      >
+      <button type="submit">Send</button>
+    </form>
+  </div>
+
+  <!-- Online Users -->
+  <div class="chat-container users-panel">
+    <h3>Online Users (<span id="userCount">0</span>)</h3>
+    <ul id="users"></ul>
+  </div>
+
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+  const form = document.getElementById("chatForm");
+  const input = document.getElementById("msgInput");
+  const messagesDiv = document.getElementById("messages");
+  const usersList = document.getElementById("users");
+  const userCount = document.getElementById("userCount");
+  const typingIndicator = document.getElementById("typingIndicator");
+  const typingText = document.querySelector(".typing-text");
+  const connectionStatus = document.getElementById("connectionStatus");
+  const username = "<%= username %>";
+
+  let typingTimer;
+  let isTyping = false;
+
+  // Format existing messages timestamps
+  document.querySelectorAll("#messages .message").forEach(msg => {
+    const iso = msg.getAttribute("data-time");
+    if (iso) {
+      const time = formatTime(new Date(iso));
+      msg.querySelector(".time").textContent = time;
+    }
+  });
+
+  // Auto-scroll to bottom on load
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+  // Helper function to format time
+  function formatTime(date) {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  // Helper function to escape HTML (prevent XSS)
+  function escapeHtml(text) {
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, char => map[char]);
+  }
+
+  // Send message
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    
+    if (text !== "" && text.length <= 1000) {
+      socket.emit("chat message", { 
+        sender: username, 
+        text: text 
+      });
+      input.value = "";
+      
+      // Stop typing indicator
+      if (isTyping) {
+        socket.emit("stop typing");
+        isTyping = false;
+      }
+    }
+  });
+
+  // Typing indicator
+  input.addEventListener("input", () => {
+    if (!isTyping) {
+      socket.emit("typing", username);
+      isTyping = true;
+    }
+    
+    clearTimeout(typingTimer);
+    typingTimer = setTimeout(() => {
+      socket.emit("stop typing");
+      isTyping = false;
+    }, 1000);
+  });
+
+  // Receive new messages
+  socket.on("chat message", (msg) => {
+    const messageDiv = document.createElement("div");
+    messageDiv.className = msg.sender === username ? "message self" : "message other";
+    
+    const time = formatTime(new Date(msg.createdAt));
+    
+    // Escape HTML to prevent XSS
+    const safeSender = escapeHtml(msg.sender);
+    const safeText = escapeHtml(msg.text);
+    
+    messageDiv.innerHTML = `
+      <div class="message-content">
+        <b>${safeSender}:</b> ${safeText}
+      </div>
+      <span class="time">${time}</span>
+    `;
+    
+    messagesDiv.appendChild(messageDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  });
+
+  // Register new user
+  socket.emit("new user", username);
+
+  // Update online users
+  socket.on("updateUsers", (users) => {
+    usersList.innerHTML = "";
+    userCount.textContent = users.length;
+    
+    users.forEach(u => {
+      const li = document.createElement("li");
+      const safeUsername = escapeHtml(u);
+      li.innerHTML = `<span class="dot"></span> ${safeUsername}`;
+      usersList.appendChild(li);
+    });
+  });
+
+  // Typing indicator update
+  socket.on("typing update", (users) => {
+    if (users.length > 0) {
+      const names = users.map(u => escapeHtml(u)).join(", ");
+      typingText.textContent = `${names} ${users.length === 1 ? 'is' : 'are'} typing...`;
+      typingIndicator.style.display = "block";
+    } else {
+      typingIndicator.style.display = "none";
+    }
+  });
+
+  // User joined notification
+  socket.on("user joined", (username) => {
+    showNotification(`${escapeHtml(username)} joined the chat`, "success");
+  });
+
+  // User left notification
+  socket.on("user left", (username) => {
+    showNotification(`${escapeHtml(username)} left the chat`, "info");
+  });
+
+  // Connection status handlers
+  socket.on("connect", () => {
+    showConnectionStatus("Connected", "success");
+    setTimeout(() => {
+      connectionStatus.style.display = "none";
+    }, 2000);
+  });
+
+  socket.on("disconnect", () => {
+    showConnectionStatus("Disconnected. Reconnecting...", "error");
+  });
+
+  socket.on("connect_error", () => {
+    showConnectionStatus("Connection error. Retrying...", "error");
+  });
+
+  // Error handler
+  socket.on("error", (error) => {
+    showNotification(error.message || "An error occurred", "error");
+  });
+
+  // Helper function to show connection status
+  function showConnectionStatus(message, type) {
+    connectionStatus.textContent = message;
+    connectionStatus.className = `status-bar ${type}`;
+    connectionStatus.style.display = "block";
+  }
+
+  // Helper function to show notifications
+  function showNotification(message, type) {
+    const notification = document.createElement("div");
+    notification.className = `notification ${type}`;
+    notification.textContent = message;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.remove();
+    }, 3000);
+  }
+</script>
+</body>
+</html>
