@@ -21,6 +21,13 @@ const { generalLimiter } = require("./middleware/rateLimiter");
 
 // Initialize Express app
 const app = express();
+
+/**
+ * ✅ REQUIRED FOR RENDER / PROXIES
+ * Must be BEFORE rate-limit and sessions
+ */
+app.set("trust proxy", 1);
+
 const server = http.createServer(app);
 const io = new Server(server);
 
@@ -28,17 +35,17 @@ const io = new Server(server);
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 
-// Middleware
+// Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session configuration with security settings
+// Session configuration
 app.use(session(config.session));
 
 // Static files
 app.use(express.static(path.join(__dirname, "public")));
 
-// Apply rate limiting to all routes
+// Apply rate limiting AFTER trust proxy
 app.use(generalLimiter);
 
 // Security headers
@@ -53,12 +60,12 @@ app.use((req, res, next) => {
 app.use("/", authRoutes);
 app.use("/", chatRoutes);
 
-// Home route - redirect to chat or login
+// Home route
 app.get("/", (req, res) => {
   if (req.session.userId) {
     return res.redirect("/chat");
   }
-  res.redirect("/login");
+  return res.redirect("/login");
 });
 
 // 404 handler
@@ -66,7 +73,7 @@ app.use((req, res) => {
   res.status(404).send("Page not found");
 });
 
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("Server error:", err);
   res.status(500).send("Internal server error");
@@ -75,16 +82,16 @@ app.use((err, req, res, next) => {
 // Initialize Socket.IO handlers
 initializeSocketHandlers(io);
 
-// Start server AFTER database connection is established
+// Start server AFTER DB connection
 const startServer = async () => {
   try {
-    // Connect to database first
     await connectDB();
-    
-    // Start server only after successful database connection
-    server.listen(config.port, () => {
-      console.log(`Server running on http://localhost:${config.port}`);
-      console.log(`Environment: ${config.nodeEnv}`);
+
+    const PORT = process.env.PORT || 9200;
+
+    server.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV}`);
     });
   } catch (error) {
     console.error("Failed to start server:", error.message);
@@ -92,12 +99,11 @@ const startServer = async () => {
   }
 };
 
-// Start the application
 startServer();
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-  console.log("SIGTERM signal received: closing HTTP server");
+  console.log("SIGTERM received. Shutting down...");
   server.close(() => {
     console.log("HTTP server closed");
     process.exit(0);
