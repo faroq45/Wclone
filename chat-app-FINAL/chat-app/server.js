@@ -24,9 +24,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Connect to database
-connectDB();
-
 // View engine setup
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
@@ -78,11 +75,25 @@ app.use((err, req, res, next) => {
 // Initialize Socket.IO handlers
 initializeSocketHandlers(io);
 
-// Start server
-server.listen(config.port, () => {
-  console.log(`Server running on http://localhost:${config.port}`);
-  console.log(`Environment: ${config.nodeEnv}`);
-});
+// Start server AFTER database connection is established
+const startServer = async () => {
+  try {
+    // Connect to database first
+    await connectDB();
+    
+    // Start server only after successful database connection
+    server.listen(config.port, () => {
+      console.log(`Server running on http://localhost:${config.port}`);
+      console.log(`Environment: ${config.nodeEnv}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error.message);
+    process.exit(1);
+  }
+};
+
+// Start the application
+startServer();
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
